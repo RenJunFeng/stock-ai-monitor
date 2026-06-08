@@ -1,0 +1,12 @@
+fastapi==0.136.3
+uvicorn[standard]==0.35.0
+sqlalchemy==2.0.41
+pydantic-settings==2.10.1
+apscheduler==3.11.1
+httpx==0.28.1
+requests==2.32.4
+python-dotenv==1.1.1
+akshare==1.17.71
+email-validator==2.2.0
+pytest==8.4.1
+pytest-asyncio==1.0.0

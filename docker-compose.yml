@@ -1,0 +1,39 @@
+name: stock-ai-monitor
+
+services:
+  backend:
+    container_name: stock-ai-monitor-api
+    restart: unless-stopped
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    expose:
+      - "8000"
+    volumes:
+      - ./backend/data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - stock-ai-monitor-network
+
+  frontend:
+    container_name: stock-ai-monitor-web
+    restart: unless-stopped
+    build:
+      context: ./frontend
+    ports:
+      - "51998:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - stock-ai-monitor-network
+
+networks:
+  stock-ai-monitor-network:
+    name: stock-ai-monitor-network
