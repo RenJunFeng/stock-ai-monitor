@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     deepseek_model: str = Field(default="deepseek-v4-pro", alias="DEEPSEEK_MODEL")
     deepseek_timeout_seconds: int = Field(default=120, alias="DEEPSEEK_TIMEOUT_SECONDS")
 
-    market_provider: str = Field(default="sina", alias="MARKET_PROVIDER")
+    market_provider: str = Field(default="easyquotation", alias="MARKET_PROVIDER")
+    market_allow_mock_fallback: bool = Field(default=False, alias="MARKET_ALLOW_MOCK_FALLBACK")
 
     smtp_host: str = Field(default="smtp.qq.com", alias="SMTP_HOST")
     smtp_port: int = Field(default=465, alias="SMTP_PORT")

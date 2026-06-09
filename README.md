@@ -53,6 +53,28 @@ docker compose ps
 docker compose logs -f
 ```
 
+## 行情源排查
+
+部署后可以直接检查实时行情是否真正连通：
+
+```bash
+curl "http://127.0.0.1:51998/api/market/quote/600519?stock_name=贵州茅台"
+```
+
+正常情况下会返回 `current_price` 和 `source`。如果行情源不可用，接口会返回错误，不会静默返回模拟价格。
+
+临时允许模拟行情兜底时，可以在 `backend/.env` 中设置：
+
+```env
+MARKET_ALLOW_MOCK_FALLBACK=true
+```
+
+生产环境建议保持：
+
+```env
+MARKET_ALLOW_MOCK_FALLBACK=false
+```
+
 也可以直接用脚本：
 
 启动：

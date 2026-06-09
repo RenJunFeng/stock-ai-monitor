@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +18,15 @@ analysis_service = AnalysisService()
 @router.get("/health")
 def healthcheck():
     return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
+
+
+@router.get("/market/quote/{stock_code}")
+async def get_market_quote(stock_code: str, stock_name: str = ""):
+    try:
+        quote = await analysis_service.market_data.get_quote(stock_code, stock_name or stock_code)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return asdict(quote)
 
 
 @router.get("/watchlist", response_model=list[WatchlistItemRead])

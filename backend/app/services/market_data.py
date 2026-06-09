@@ -1,6 +1,5 @@
 import asyncio
 import math
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -14,14 +13,9 @@ from app.core.config import get_settings
 
 EASTMONEY_STOCK_URL = "https://82.push2.eastmoney.com/api/qt/stock/get"
 EASTMONEY_SNAPSHOT_URL = "https://82.push2.eastmoney.com/api/qt/clist/get"
-SINA_QUOTE_URL = "http://hq.sinajs.cn/list="
 EASTMONEY_HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Referer": "https://quote.eastmoney.com/",
-}
-SINA_HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Referer": "https://finance.sina.com.cn/",
 }
 EASTMONEY_STOCK_FIELDS = ",".join(
     [
@@ -80,6 +74,7 @@ class MarketQuote:
     stock_code: str
     stock_name: str
     current_price: float
+    source: str = "unknown"
     total_market_cap: Optional[float] = None
     circulating_market_cap: Optional[float] = None
     pe_dynamic: Optional[float] = None
@@ -91,25 +86,29 @@ class MarketDataService:
     _snapshot_cache: dict[str, dict[str, Any]] = {}
     _snapshot_cached_at: datetime | None = None
     _snapshot_ttl = timedelta(seconds=20)
+    _easyquotation_client = None
+    _akshare_cache: dict[str, dict[str, Any]] = {}
+    _akshare_cached_at: datetime | None = None
 
     def __init__(self) -> None:
         self.settings = get_settings()
 
     async def get_quote(self, stock_code: str, stock_name: str) -> MarketQuote:
         provider = self.settings.market_provider.strip().lower()
-        if provider == "sina":
-            try:
-                return await asyncio.to_thread(self._get_quote_with_sina_primary, stock_code, stock_name)
-            except Exception:
-                return self._mock_quote(stock_code, stock_name)
-        if provider in {"eastmoney", "akshare"}:
-            try:
+        try:
+            if provider in {"easyquotation", "sina"}:
+                return await asyncio.to_thread(self._get_quote_with_easyquotation_primary, stock_code, stock_name)
+            if provider in {"eastmoney", "akshare"}:
                 return await asyncio.to_thread(self._get_quote_with_live_sources, stock_code, stock_name)
-            except Exception:
+            if provider == "mock":
                 return self._mock_quote(stock_code, stock_name)
-        return self._mock_quote(stock_code, stock_name)
+            raise ValueError(f"Unsupported MARKET_PROVIDER: {self.settings.market_provider}")
+        except Exception as exc:
+            if self.settings.market_allow_mock_fallback:
+                return self._mock_quote(stock_code, stock_name, reason=str(exc))
+            raise RuntimeError(f"Realtime market provider failed for {stock_code}: {exc}") from exc
 
-    def _mock_quote(self, stock_code: str, stock_name: str) -> MarketQuote:
+    def _mock_quote(self, stock_code: str, stock_name: str, reason: str | None = None) -> MarketQuote:
         seed = int("".join(char for char in stock_code if char.isdigit()) or "1")
         rng = Random(seed)
         price = round(rng.uniform(8, 98), 2)
@@ -117,6 +116,7 @@ class MarketDataService:
             stock_code=stock_code,
             stock_name=stock_name,
             current_price=price,
+            source=f"mock:{reason}" if reason else "mock",
             total_market_cap=round(price * rng.uniform(12, 48), 2),
             circulating_market_cap=round(price * rng.uniform(8, 30), 2),
             pe_dynamic=round(rng.uniform(10, 45), 2),
@@ -127,7 +127,7 @@ class MarketDataService:
     def _get_quote_with_live_sources(self, stock_code: str, stock_name: str) -> MarketQuote:
         last_error: Exception | None = None
         try:
-            base_quote = self._get_quote_with_sina(stock_code, stock_name)
+            base_quote = self._get_quote_with_easyquotation(stock_code, stock_name)
         except Exception as exc:
             last_error = exc
             base_quote = None
@@ -149,40 +149,82 @@ class MarketDataService:
             raise last_error
         raise LookupError("No realtime quote source returned data")
 
-    def _get_quote_with_sina_primary(self, stock_code: str, stock_name: str) -> MarketQuote:
+    def _get_quote_with_easyquotation_primary(self, stock_code: str, stock_name: str) -> MarketQuote:
+        base_quote = self._get_quote_with_easyquotation(stock_code, stock_name)
+
         try:
-            return self._get_quote_with_sina(stock_code, stock_name)
+            supplement_quote = self._get_quote_with_akshare_fundamentals(stock_code, stock_name)
+            return self._merge_quotes(base_quote, supplement_quote)
         except Exception:
-            return self._get_quote_with_eastmoney(stock_code, stock_name)
+            try:
+                supplement_quote = self._get_quote_with_eastmoney(stock_code, stock_name)
+                return self._merge_quotes(base_quote, supplement_quote)
+            except Exception:
+                return base_quote
 
-    def _get_quote_with_sina(self, stock_code: str, stock_name: str) -> MarketQuote:
+    def _get_quote_with_easyquotation(self, stock_code: str, stock_name: str) -> MarketQuote:
+        import easyquotation
+
+        if self.__class__._easyquotation_client is None:
+            self.__class__._easyquotation_client = easyquotation.use("sina")
+
         normalized_code = self._normalize_stock_code(stock_code)
-        symbol = self._build_sina_symbol(normalized_code)
-        response = requests.get(
-            f"{SINA_QUOTE_URL}{symbol}",
-            headers=SINA_HEADERS,
-            timeout=12,
-        )
-        response.raise_for_status()
-        response.encoding = "gbk"
-        payload = response.text.strip()
-        match = re.search(r'="(?P<body>.*)"\s*;?$', payload)
-        if not match:
-            raise ValueError(f"Unexpected Sina quote payload for {normalized_code}")
+        payload = self.__class__._easyquotation_client.real([normalized_code])
+        item = payload.get(normalized_code)
+        if not item:
+            prefixed_symbol = self._build_prefixed_symbol(normalized_code)
+            payload = self.__class__._easyquotation_client.real([prefixed_symbol], prefix=True)
+            item = payload.get(prefixed_symbol)
+        if not item:
+            raise LookupError(f"easyquotation returned no data for {normalized_code}")
 
-        parts = match.group("body").split(",")
-        if len(parts) < 10 or not parts[0].strip():
-            raise ValueError(f"Sina quote returned empty data for {normalized_code}")
-
-        current_price = self._safe_float(parts[3])
+        current_price = self._safe_float(item.get("now"))
         if current_price is None:
-            raise ValueError(f"Sina quote missing current price for {normalized_code}")
+            raise ValueError(f"easyquotation missing current price for {normalized_code}")
 
         return MarketQuote(
             stock_code=normalized_code,
-            stock_name=parts[0].strip() or stock_name,
+            stock_name=str(item.get("name") or stock_name).strip(),
             current_price=current_price,
+            source="easyquotation:sina",
         )
+
+    @classmethod
+    def _get_quote_with_akshare_fundamentals(cls, stock_code: str, stock_name: str) -> MarketQuote:
+        normalized_code = cls._normalize_stock_code(stock_code)
+        row = cls._get_akshare_cache().get(normalized_code)
+        if not row:
+            raise LookupError(f"AkShare returned no data for {normalized_code}")
+
+        return MarketQuote(
+            stock_code=normalized_code,
+            stock_name=str(row.get("名称") or stock_name).strip(),
+            current_price=cls._safe_float(row.get("最新价")) or 0.0,
+            source="akshare:stock_zh_a_spot_em",
+            total_market_cap=cls._safe_float(row.get("总市值")),
+            circulating_market_cap=cls._safe_float(row.get("流通市值")),
+            pe_dynamic=cls._safe_float(row.get("市盈率-动态")),
+            pb=cls._safe_float(row.get("市净率")),
+            turnover_rate=cls._safe_float(row.get("换手率")),
+        )
+
+    @classmethod
+    def _get_akshare_cache(cls) -> dict[str, dict[str, Any]]:
+        now = datetime.now(UTC)
+        if cls._akshare_cache and cls._akshare_cached_at and now - cls._akshare_cached_at < cls._snapshot_ttl:
+            return cls._akshare_cache
+
+        import akshare as ak
+
+        df = ak.stock_zh_a_spot_em()
+        records = df.to_dict(orient="records")
+        cls._akshare_cache = {
+            str(record.get("代码")): record
+            for record in records
+            if record.get("代码")
+        }
+        cls._akshare_cached_at = now
+        return cls._akshare_cache
 
     def _get_quote_with_eastmoney(self, stock_code: str, stock_name: str) -> MarketQuote:
         normalized_code = self._normalize_stock_code(stock_code)
@@ -286,6 +328,7 @@ class MarketDataService:
             stock_code=str(payload.get("f57") or "").strip(),
             stock_name=str(payload.get("f58") or fallback_name),
             current_price=cls._scaled_float(payload.get("f43"), 100) or 0.0,
+            source="eastmoney:stock",
             total_market_cap=cls._safe_float(payload.get("f116")),
             circulating_market_cap=cls._safe_float(payload.get("f117")),
             pe_dynamic=cls._scaled_float(payload.get("f162"), 100),
@@ -299,6 +342,7 @@ class MarketDataService:
             stock_code=str(row.get("f12") or "").strip(),
             stock_name=str(row.get("f14") or fallback_name),
             current_price=cls._safe_float(row.get("f2")) or 0.0,
+            source="eastmoney:snapshot",
             total_market_cap=cls._safe_float(row.get("f20")),
             circulating_market_cap=cls._safe_float(row.get("f21")),
             pe_dynamic=cls._safe_float(row.get("f9")),
@@ -312,6 +356,7 @@ class MarketDataService:
             stock_code=primary.stock_code or supplement.stock_code,
             stock_name=primary.stock_name or supplement.stock_name,
             current_price=primary.current_price or supplement.current_price,
+            source=f"{primary.source}+{supplement.source}",
             total_market_cap=primary.total_market_cap if primary.total_market_cap is not None else supplement.total_market_cap,
             circulating_market_cap=(
                 primary.circulating_market_cap
@@ -328,7 +373,7 @@ class MarketDataService:
         return "".join(char for char in stock_code if char.isdigit())
 
     @staticmethod
-    def _build_sina_symbol(stock_code: str) -> str:
+    def _build_prefixed_symbol(stock_code: str) -> str:
         if stock_code.startswith(("600", "601", "603", "605", "688", "689", "900", "510", "511", "512", "513", "515")):
             return f"sh{stock_code}"
         if stock_code.startswith(("000", "001", "002", "003", "159", "200", "300", "301")):
