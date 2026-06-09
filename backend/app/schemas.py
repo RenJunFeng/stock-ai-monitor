@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 class WatchlistItemCreate(BaseModel):
     stock_code: str = Field(min_length=6, max_length=20)
     stock_name: str = Field(min_length=1, max_length=100)
+    group_name: str = Field(default="默认分组", min_length=1, max_length=80)
 
     @field_validator("stock_code")
     @classmethod
@@ -17,6 +18,12 @@ class WatchlistItemCreate(BaseModel):
     @classmethod
     def normalize_name(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("group_name")
+    @classmethod
+    def normalize_group_name(cls, value: str) -> str:
+        normalized = value.strip()
+        return normalized or "默认分组"
 
 
 class WatchlistBatchCreate(BaseModel):
@@ -38,13 +45,31 @@ class WatchlistItemRead(BaseModel):
     id: int
     stock_code: str
     stock_name: str
+    group_name: str = "默认分组"
     created_at: datetime
     updated_at: datetime
 
 
 class AnalysisRunRequest(BaseModel):
     stock_codes: Optional[list[str]] = None
+    group_name: Optional[str] = None
     manual_trigger: bool = True
+
+    @field_validator("stock_codes")
+    @classmethod
+    def normalize_stock_codes(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        if value is None:
+            return None
+        normalized = [stock_code.strip() for stock_code in value if stock_code.strip()]
+        return normalized or None
+
+    @field_validator("group_name")
+    @classmethod
+    def normalize_group_filter(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class AnalysisRead(BaseModel):
@@ -104,4 +129,3 @@ class DashboardOverview(BaseModel):
     recommendation_breakdown: list[dict[str, Any]]
     latest_alerts: list[AlertRead]
     stocks: list[AnalysisRead]
-

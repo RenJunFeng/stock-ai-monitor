@@ -4,6 +4,7 @@ export interface WatchlistItem {
   id: number;
   stock_code: string;
   stock_name: string;
+  group_name: string;
   created_at: string;
   updated_at: string;
 }
@@ -62,4 +63,3 @@ export interface DashboardData {
   latest_alerts: AlertItem[];
   stocks: AnalysisItem[];
 }
-

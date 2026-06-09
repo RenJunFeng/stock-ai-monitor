@@ -9,6 +9,11 @@ import { DashboardPage } from './pages/DashboardPage';
 import { WatchlistPage } from './pages/WatchlistPage';
 import type { AlertItem, AnalysisItem, DashboardData, PageKey, WatchlistItem } from './types';
 
+interface AnalysisRunOptions {
+  stockCodes?: string[];
+  groupName?: string;
+}
+
 function App() {
   const [currentPage, setCurrentPage] = useState<PageKey>('watchlist');
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
@@ -18,6 +23,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [analyzeStageIndex, setAnalyzeStageIndex] = useState(0);
+  const [analysisScope, setAnalysisScope] = useState('全池');
 
   const analyzeStages = [
     '正在读取自选池并准备行情快照',
@@ -43,21 +49,36 @@ function App() {
     setAlerts(response.data);
   };
 
-  const runAnalysis = async () => {
+  const runAnalysis = async (options: AnalysisRunOptions = {}) => {
+    const nextScope = options.stockCodes?.length
+      ? `单股 ${options.stockCodes.join(', ')}`
+      : options.groupName
+        ? `分组 ${options.groupName}`
+        : '全池';
+
+    setAnalysisScope(nextScope);
     setIsAnalyzing(true);
     setAnalyzeError(null);
     setAnalyzeStageIndex(0);
     startTransition(() => setCurrentPage('dashboard'));
 
     try {
-      await api.post('/analysis/run', { manual_trigger: true }, { timeout: 300000 });
+      await api.post(
+        '/analysis/run',
+        {
+          manual_trigger: true,
+          stock_codes: options.stockCodes,
+          group_name: options.groupName,
+        },
+        { timeout: 300000 },
+      );
       setAnalyzeStageIndex(analyzeStages.length - 1);
       await Promise.all([loadDashboard(), loadAlerts(), loadWatchlist()]);
     } catch (error) {
       if (error instanceof AxiosError && error.code === 'ECONNABORTED') {
-        setAnalyzeError('本轮分析耗时超过前端等待上限。后端可能仍在继续处理，你可以稍等片刻后刷新监控大屏查看结果。');
+        setAnalyzeError(`${nextScope}分析耗时超过前端等待上限。后端可能仍在继续处理，你可以稍等片刻后刷新监控大屏查看结果。`);
       } else {
-        setAnalyzeError('本轮分析没有顺利完成。常见原因是模型响应过慢、返回格式不稳定，或个别股票报告解析失败。');
+        setAnalyzeError(`${nextScope}分析没有顺利完成。建议先用单股 AI 分析定位是否为个别股票、行情数据或模型返回异常。`);
       }
       await Promise.allSettled([loadDashboard(), loadAlerts(), loadWatchlist()]);
     } finally {
@@ -79,7 +100,7 @@ function App() {
     }, 5000);
 
     return () => window.clearInterval(timer);
-  }, [isAnalyzing]);
+  }, [isAnalyzing, analyzeStages.length]);
 
   return (
     <div className="app-frame">
@@ -93,6 +114,7 @@ function App() {
             <span>AI STOCK MONITOR</span>
             <span>WATCHLIST {watchlist.length}</span>
             <span>ALERTS {alerts.length}</span>
+            <span>分析范围 {analysisScope}</span>
             <span>{new Date().toLocaleDateString('zh-CN')}</span>
           </section>
 
@@ -110,7 +132,7 @@ function App() {
               data={dashboard}
               onOpenReport={setActiveReport}
               isAnalyzing={isAnalyzing}
-              analyzeStage={analyzeStages[analyzeStageIndex]}
+              analyzeStage={`${analysisScope} · ${analyzeStages[analyzeStageIndex]}`}
               analyzeError={analyzeError}
             />
           ) : null}

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.core.config import get_settings
@@ -32,3 +32,16 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ensure_runtime_schema() -> None:
+    """Apply tiny SQLite-safe upgrades for installations without migrations."""
+    inspector = inspect(engine)
+    if "watchlist_stocks" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("watchlist_stocks")}
+    if "group_name" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE watchlist_stocks ADD COLUMN group_name VARCHAR(80) DEFAULT '默认分组'"))
+            connection.execute(text("UPDATE watchlist_stocks SET group_name = '默认分组' WHERE group_name IS NULL OR group_name = ''"))

@@ -36,15 +36,18 @@ def list_watchlist(db: Session = Depends(get_db)):
 
 @router.post("/watchlist", response_model=list[WatchlistItemRead])
 def create_watchlist(payload: WatchlistBatchCreate, db: Session = Depends(get_db)):
-    existing_codes = {
-        stock.stock_code
+    existing_stocks = {
+        stock.stock_code: stock
         for stock in db.execute(select(WatchlistStock).where(WatchlistStock.stock_code.in_([item.stock_code for item in payload.items]))).scalars().all()
     }
     created: list[WatchlistStock] = []
     for item in payload.items:
-        if item.stock_code in existing_codes:
+        existing = existing_stocks.get(item.stock_code)
+        if existing:
+            existing.stock_name = item.stock_name
+            existing.group_name = item.group_name
             continue
-        stock = WatchlistStock(stock_code=item.stock_code, stock_name=item.stock_name)
+        stock = WatchlistStock(stock_code=item.stock_code, stock_name=item.stock_name, group_name=item.group_name)
         db.add(stock)
         created.append(stock)
     db.commit()
@@ -72,7 +75,12 @@ def clear_watchlist(db: Session = Depends(get_db)):
 
 @router.post("/analysis/run", response_model=list[AnalysisRead])
 async def run_analysis(payload: AnalysisRunRequest, db: Session = Depends(get_db)):
-    return await analysis_service.run_for_watchlist(db, stock_codes=payload.stock_codes, manual_trigger=payload.manual_trigger)
+    return await analysis_service.run_for_watchlist(
+        db,
+        stock_codes=payload.stock_codes,
+        group_name=payload.group_name,
+        manual_trigger=payload.manual_trigger,
+    )
 
 
 @router.get("/analysis/latest", response_model=list[AnalysisRead])

@@ -16,10 +16,18 @@ class AnalysisService:
         self.deepseek = DeepSeekService()
         self.alert_service = AlertService()
 
-    async def run_for_watchlist(self, db: Session, stock_codes: list[str] | None = None, manual_trigger: bool = False) -> list[StockAnalysis]:
+    async def run_for_watchlist(
+        self,
+        db: Session,
+        stock_codes: list[str] | None = None,
+        group_name: str | None = None,
+        manual_trigger: bool = False,
+    ) -> list[StockAnalysis]:
         query = select(WatchlistStock).order_by(WatchlistStock.stock_code.asc())
         if stock_codes:
             query = query.where(WatchlistStock.stock_code.in_(stock_codes))
+        if group_name:
+            query = query.where(WatchlistStock.group_name == group_name.strip())
         stocks = db.execute(query).scalars().all()
 
         results: list[StockAnalysis] = []

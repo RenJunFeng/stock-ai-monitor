@@ -16,6 +16,7 @@ class WatchlistStock(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     stock_code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
     stock_name: Mapped[str] = mapped_column(String(100))
+    group_name: Mapped[str] = mapped_column(String(80), default="默认分组", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 

@@ -349,6 +349,11 @@ button {
   padding: 24px;
 }
 
+.watchlist-panel {
+  display: grid;
+  gap: 16px;
+}
+
 .watchlist-layout,
 .dashboard-grid {
   display: grid;
@@ -626,6 +631,67 @@ th {
   background: rgba(255, 255, 255, 0.08);
   color: #fff7eb;
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.group-action-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.group-action-card {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  border: 1px solid rgba(16, 29, 39, 0.1);
+  border-radius: 22px;
+  padding: 14px 16px;
+  background:
+    radial-gradient(circle at 85% 10%, rgba(200, 138, 66, 0.24), transparent 34%),
+    rgba(252, 247, 239, 0.86);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.group-action-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(200, 138, 66, 0.42);
+  box-shadow: 0 16px 32px rgba(16, 29, 39, 0.1);
+}
+
+.group-action-card span {
+  color: var(--slate);
+  font-weight: 700;
+}
+
+.group-action-card strong {
+  font-size: 24px;
+  font-family: "Cormorant Garamond", Georgia, serif;
+}
+
+.group-action-card small {
+  color: var(--muted);
+}
+
+.group-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(200, 138, 66, 0.14);
+  color: #8b5925;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.danger-link {
+  color: #963e2a;
 }
 
 .stock-card-topline {

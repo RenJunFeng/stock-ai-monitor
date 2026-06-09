@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router
 from app.core.config import get_settings
-from app.core.database import Base, engine
+from app.core.database import Base, engine, ensure_runtime_schema
 from app.services.scheduler import SchedulerService
 
 
@@ -16,6 +16,7 @@ scheduler = SchedulerService()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema()
     scheduler.start()
     try:
         yield
@@ -34,4 +35,3 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix=settings.api_prefix)
-
